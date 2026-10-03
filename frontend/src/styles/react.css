@@ -1,0 +1,88 @@
+.page {
+  padding: 48px 0 72px;
+  min-height: 60vh;
+}
+.narrow {
+  max-width: 760px;
+  margin: auto;
+}
+.back-link {
+  display: inline-block;
+  margin-bottom: 32px;
+}
+.actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.album-detail {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  margin-bottom: 70px;
+}
+.album-detail > img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.album-detail h1 {
+  font-size: clamp(32px, 4vw, 58px);
+  margin: 16px 0;
+}
+.album-detail .price {
+  font-size: 28px;
+}
+.album-detail p {
+  white-space: pre-line;
+}
+.upload-preview {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.surface {
+  background: white;
+  color: #202020;
+  padding: 24px;
+  border-radius: 8px;
+}
+.surface .dark {
+  background: #f14e2f;
+  border-color: #f14e2f;
+  color: white;
+}
+.page .status {
+  color: #202020;
+}
+.page input,
+.page textarea {
+  color: #202020;
+}
+.page .order select {
+  color: inherit;
+}
+.cart-line small {
+  color: inherit;
+}
+.cover-open img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+@media (max-width: 720px) {
+  .album-detail {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .album-detail > img {
+    max-width: 420px;
+    margin: auto;
+  }
+  .page {
+    padding-top: 30px;
+  }
+}

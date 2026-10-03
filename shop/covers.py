@@ -4,6 +4,7 @@ import unicodedata
 from .database import ROOT
 
 COVER_DIR = ROOT / "static" / "covers" / "albums"
+UPLOAD_DIR = ROOT / "static" / "covers" / "uploads"
 EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 
@@ -19,6 +20,13 @@ def cover_info(record):
     record["cover_filename"] = stem + ".jpg"
     record["cover_url"] = f"/covers/{record['cover']}.svg"
     record["has_cover"] = False
+    uploaded = UPLOAD_DIR / f"{record['id']}.jpg"
+    if uploaded.is_file():
+        record["cover_url"] = (
+            f"/covers/uploads/{record['id']}.jpg?v={uploaded.stat().st_mtime_ns}"
+        )
+        record["has_cover"] = True
+        return record
     for extension in EXTENSIONS:
         path = COVER_DIR / (stem + extension)
         if path.is_file():

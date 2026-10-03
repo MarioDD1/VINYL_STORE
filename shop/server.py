@@ -9,6 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 from .database import ROOT, connect, init, password_hash
 from .covers import cover_info
+from . import covers
+from .uploads import MAX_UPLOAD_BYTES, save_cover
 
 INVITE = os.environ.get("ADMIN_INVITE_CODE") or secrets.token_urlsafe(12)
 STATUSES = ["Новый", "В обработке", "Отправлен", "Завершён", "Отменён"]
@@ -91,14 +93,35 @@ class Handler(BaseHTTPRequestHandler):
                         ]
                     return self.reply(orders)
                 return self.reply({"error": "Не найдено"}, 404)
-        relative = "index.html" if path == "/" else path.lstrip("/")
-        target = (ROOT / "static" / relative).resolve()
-        if (
-            not target.is_relative_to((ROOT / "static").resolve())
-            or not target.is_file()
-        ):
+        self.serve_frontend(path)
+
+    def serve_frontend(self, path):
+        if path.startswith("/covers/"):
+            asset_root = ROOT / "static" / "covers"
+            relative = path.removeprefix("/covers/")
+        else:
+            asset_root = ROOT / "frontend" / "dist"
+            relative = path.lstrip("/")
+
+        target = (asset_root / relative).resolve()
+        if not target.is_relative_to(asset_root.resolve()):
             self.send_error(404)
             return
+
+        page_routes = {
+            "/", "/index.html", "/catalog", "/favorites", "/cart",
+            "/account", "/orders", "/admin",
+        }
+        if path in page_routes or path.startswith("/albums/"):
+            target = asset_root / "index.html"
+            if not target.is_file():
+                self.build_required()
+                return
+
+        if not target.is_file():
+            self.send_error(404)
+            return
+
         types = {
             ".html": "text/html; charset=utf-8",
             ".css": "text/css; charset=utf-8",
@@ -114,13 +137,45 @@ class Handler(BaseHTTPRequestHandler):
             "Content-Type", types.get(target.suffix, "application/octet-stream")
         )
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(target.read_bytes())
+
+    def build_required(self):
+        # This is a setup notice, not a second implementation of the website.
+        html = """<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VINYL ROOM — нужна сборка React</title>
+</head>
+<body>
+  <main>
+    <h1>Сначала выполните сборку React</h1>
+    <p>Сервер работает, но файл frontend/dist/index.html ещё не создан.</p>
+    <p>В терминале из папки VINYL_STORE выполните:</p>
+    <pre>cd frontend
+npm ci
+npm run build</pre>
+    <p>После успешной сборки обновите страницу. Перезапуск сервера не нужен.</p>
+    <p>Исходный код интерфейса находится в frontend/src/.</p>
+  </main>
+</body>
+</html>"""
+        self.send_response(503)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(html.encode("utf-8"))
 
     def do_POST(self):
         origin = self.headers.get("Origin")
         if origin and origin != "http://" + self.headers.get("Host", ""):
             return self.reply({"error": "Недопустимый источник запроса"}, 403)
+        if urlparse(self.path).path.startswith("/api/admin/cover/"):
+            return self.upload_cover()
         try:
             size = int(self.headers.get("Content-Length", 0))
             if size > 65536:
@@ -139,6 +194,30 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(
                 {"error": "Этот email уже зарегистрирован или данные некорректны"}, 409
             )
+
+    def upload_cover(self):
+        try:
+            with connect() as db:
+                user = self.user(db)
+                if not user or user["role"] != "admin":
+                    raise PermissionError("Загружать обложки может только администратор")
+                record_id = int(urlparse(self.path).path.rsplit("/", 1)[1])
+                record = db.execute(
+                    "SELECT * FROM records WHERE id=? AND active=1", (record_id,)
+                ).fetchone()
+                if not record:
+                    return self.reply({"error": "Пластинка не найдена"}, 404)
+                size = int(self.headers.get("Content-Length", 0))
+                if not 0 < size <= MAX_UPLOAD_BYTES:
+                    return self.reply({"error": "Максимальный размер обложки — 5 МБ"}, 413)
+                save_cover(self.rfile.read(size), record_id, covers.UPLOAD_DIR)
+                return self.reply(cover_info(dict(record)))
+        except PermissionError as error:
+            return self.reply({"error": str(error)}, 403)
+        except ValueError as error:
+            return self.reply({"error": str(error)}, 400)
+        except OSError:
+            return self.reply({"error": "Не удалось сохранить обложку"}, 500)
 
     def mutate(self, db, path, b):
         user = self.user(db)
@@ -279,6 +358,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Добавьте описание до 3000 символов")
                 values = (*fields, year, price, stock, description, cover)
                 if b.get("id"):
+                    record_id = int(b["id"])
+                    if not db.execute("SELECT 1 FROM records WHERE id=? AND active=1", (record_id,)).fetchone():
+                        raise ValueError("Пластинка не найдена")
                     db.execute(
                         "UPDATE records SET"
                         " artist=?,title=?,genre=?,year=?,price=?,stock=?,description=?,cover=?"
@@ -286,12 +368,14 @@ class Handler(BaseHTTPRequestHandler):
                         (*values, int(b["id"])),
                     )
                 else:
-                    db.execute(
+                    cursor = db.execute(
                         "INSERT INTO"
                         " records(artist,title,genre,year,price,stock,description,cover)"
                         " VALUES(?,?,?,?,?,?,?,?)",
                         values,
                     )
+                    record_id = cursor.lastrowid
+                return {"ok": True, "id": record_id}, None
             elif path == "/api/admin/delete":
                 db.execute("UPDATE records SET active=0 WHERE id=?", (int(b["id"]),))
             elif path == "/api/admin/status":

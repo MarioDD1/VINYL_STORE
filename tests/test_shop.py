@@ -3,6 +3,7 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -186,7 +187,7 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(self.call(customer, "state")[1]["user"]["role"], "customer")
 
     def test_static_files(self):
-        for path in ["/", "/styles.css", "/app.js", "/covers/0.svg", "/covers/11.svg"]:
+        for path in ["/covers/0.svg", "/covers/11.svg"]:
             with urllib.request.urlopen(self.base + path) as response:
                 self.assertEqual(response.code, 200)
                 self.assertGreater(len(response.read()), 100)
@@ -194,6 +195,49 @@ class ShopTests(unittest.TestCase):
             urllib.request.urlopen(self.base + "/../shop/server.py")
         self.assertEqual(error.exception.code, 404)
         error.exception.close()
+
+
+    def test_missing_build_and_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cover_dir = root / "static" / "covers"
+            cover_dir.mkdir(parents=True)
+            (cover_dir / "test.svg").write_text("<svg/>", encoding="utf-8")
+            with patch.object(server, "ROOT", root):
+                for route in ["/", "/catalog", "/albums/1", "/admin"]:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(self.base + route)
+                    with caught.exception as response:
+                        self.assertEqual(response.code, 503)
+                        text = response.read().decode("utf-8")
+                        self.assertIn("Сначала выполните сборку React", text)
+                        self.assertIn("npm run build", text)
+                        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+                # API and covers remain available even before the React build.
+                self.assertEqual(self.call(self.client(), "state")[0], 200)
+                with urllib.request.urlopen(self.base + "/covers/test.svg") as response:
+                    self.assertEqual(response.read(), b"<svg/>")
+
+                build = root / "frontend" / "dist"
+                build.mkdir(parents=True)
+                (build / "index.html").write_text("<html>React build</html>")
+                assets = build / "assets"
+                assets.mkdir()
+                (assets / "app.js").write_text("console.log('React');")
+                for route in ["/", "/catalog", "/albums/1", "/admin"]:
+                    with urllib.request.urlopen(self.base + route) as response:
+                        self.assertEqual(response.code, 200)
+                        self.assertIn(b"React build", response.read())
+                with urllib.request.urlopen(self.base + "/assets/app.js") as response:
+                    self.assertEqual(response.code, 200)
+
+                for route in ["/app.js", "/styles.css", "/assets/missing.js",
+                              "/covers/../index.html", "/../shop/server.py"]:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(self.base + route)
+                    with caught.exception as response:
+                        self.assertEqual(response.code, 404)
 
 
 if __name__ == "__main__":
