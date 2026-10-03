@@ -8,6 +8,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 from .database import ROOT, connect, init, password_hash
+from .covers import cover_info
 
 INVITE = os.environ.get("ADMIN_INVITE_CODE") or secrets.token_urlsafe(12)
 STATUSES = ["Новый", "В обработке", "Отправлен", "Завершён", "Отменён"]
@@ -46,7 +47,7 @@ class Handler(BaseHTTPRequestHandler):
                 user = self.user(db)
                 if path == "/api/state":
                     records = [
-                        dict(r)
+                        cover_info(dict(r))
                         for r in db.execute(
                             "SELECT * FROM records WHERE active=1 ORDER BY id"
                         )
@@ -103,6 +104,10 @@ class Handler(BaseHTTPRequestHandler):
             ".css": "text/css; charset=utf-8",
             ".js": "text/javascript; charset=utf-8",
             ".svg": "image/svg+xml",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
         }
         self.send_response(200)
         self.send_header(

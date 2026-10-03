@@ -1,3 +1,5 @@
+from .catalog import add_extra_albums
+
 import hashlib
 import secrets
 import sqlite3
@@ -234,3 +236,5 @@ def init():
                 " VALUES(?,?,?,?,?,?,?,?)",
                 rows,
             )
+
+        add_extra_albums(db)

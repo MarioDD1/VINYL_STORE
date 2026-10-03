@@ -58,7 +58,7 @@ class ShopTests(unittest.TestCase):
         code, state = self.call(guest, "state")
         self.assertEqual(code, 200)
         self.assertIsNone(state["user"])
-        self.assertEqual(len(state["records"]), 12)
+        self.assertEqual(len(state["records"]), 20)
         self.assertEqual(self.call(guest, "orders")[0], 401)
         self.assertEqual(self.call(guest, "favorite", {"id": 1})[0], 403)
         # Создаём покупателей и проверяем защиту роли администратора.
@@ -166,7 +166,7 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(self.call(admin, "admin/record", record)[0], 200)
         self.assertEqual(self.call(admin, "state")[1]["records"][-1]["price"], 1700)
         self.assertEqual(self.call(admin, "admin/delete", {"id": new["id"]})[0], 200)
-        self.assertEqual(len(self.call(guest, "state")[1]["records"]), 12)
+        self.assertEqual(len(self.call(guest, "state")[1]["records"]), 20)
         self.assertEqual(self.call(customer, "logout", {})[0], 200)
         self.assertIsNone(self.call(customer, "state")[1]["user"])
         self.assertEqual(

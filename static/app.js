@@ -6,7 +6,19 @@ const esc = (s) =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
   );
 const money = (n) => new Intl.NumberFormat("ru-RU").format(n) + " ₽";
-const cover = (r) => `/covers/${r.cover}.svg`;
+const cover = (r) => r.cover_url || `/covers/${r.cover}.svg`;
+
+// A damaged or removed photo must not leave a broken image in the catalog.
+document.addEventListener("error", (event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement)) return;
+  const record = state.records.find(
+    (item) => image.getAttribute("src") === item.cover_url,
+  );
+  if (record && image.getAttribute("src") !== `/covers/${record.cover}.svg`) {
+    image.src = `/covers/${record.cover}.svg`;
+  }
+}, true);
 // Данные каталога и текущие настройки просмотра.
 let state = { records: [], favorites: [], user: null };
 let genre = "Все пластинки";
@@ -145,7 +157,7 @@ function render() {
               >
                 <img
                   src="${cover(r)}"
-                  alt="Арт-обложка ${esc(r.title)}"
+                  alt="Обложка ${esc(r.title)}"
                   loading="lazy"
                 />
               </button>
@@ -246,7 +258,7 @@ function detail(id) {
   const r = state.records.find((r) => r.id === id);
   show(/* HTML */ `
     <div class="detail">
-      <img src="${cover(r)}" alt="Арт-обложка ${esc(r.title)}" />
+      <img src="${cover(r)}" alt="Обложка ${esc(r.title)}" />
       <div>
         <p class="eyebrow">${esc(r.genre)} · ${r.year} · LP</p>
         <h2>${esc(r.artist)}</h2>
@@ -266,7 +278,7 @@ function detail(id) {
         <p>
           Винил 180 г · 12″ · 33⅓ об/мин
           <br />
-          Авторская иллюстрация обложки.
+          ${r.has_cover ? "Обложка альбома." : "Временная иллюстрация: обложка пока не загружена."}
         </p>
       </div>
     </div>
@@ -793,6 +805,10 @@ function editRecord(r = {}) {
   show(/* HTML */ `
     <p class="eyebrow">КАТАЛОГ</p>
     <h2>${r.id ? "Редактировать" : "Новая пластинка"}</h2>
+    <p class="muted">
+      Фотографии: static/covers/albums/. JPG, PNG или WebP, квадрат 1000×1000.
+      ${r.cover_filename ? `Имя JPG: ${esc(r.cover_filename)}` : "Сохраните альбом и откройте редактирование, чтобы узнать имя файла."}
+    </p>
     <form id="record-form">
       <label>
         Исполнитель
@@ -855,7 +871,7 @@ function editRecord(r = {}) {
         </label>
       </div>
       <label>
-        Арт-обложка
+        Запасная обложка (если нет фотографии)
         <select name="cover">
           ${Array.from(
             { length: 12 },
