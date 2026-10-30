@@ -1,4 +1,4 @@
-from .catalog import add_extra_albums
+from .catalog import add_extra_albums, add_genre_albums
 
 import hashlib
 import secrets
@@ -238,3 +238,4 @@ def init():
             )
 
         add_extra_albums(db)
+        add_genre_albums(db)

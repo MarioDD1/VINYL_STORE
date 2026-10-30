@@ -1,8 +1,8 @@
-import { Link, useParams } from "react-router-dom";
+﻿import { Link, useParams } from "react-router-dom";
 import { useStore } from "../app/StoreContext";
 import AlbumCard, { Cover } from "../components/AlbumCard";
+import { DesignIcon, Radio, albumAssets as a } from "../components/Design";
 import { money } from "../api/client";
-
 export default function AlbumPage() {
   const { id } = useParams();
   const store = useStore();
@@ -14,54 +14,96 @@ export default function AlbumPage() {
         <Link to="/catalog">Вернуться в каталог</Link>
       </section>
     );
-  const similar = store.records
-    .filter((r) => r.id !== record.id && r.genre === record.genre)
-    .slice(0, 4);
+  const similar = [
+    ...store.records.filter((r) => r.id !== record.id && r.genre === record.genre),
+    ...store.records.filter((r) => r.id !== record.id && r.genre !== record.genre),
+  ].slice(0, 4);
   return (
-    <section className="page">
-      <Link className="back-link" to="/catalog">
-        ← Каталог
-      </Link>
-      <div className="album-detail">
-        <Cover record={record} />
-        <div>
-          <p className="eyebrow">
-            {record.genre} · {record.year} · LP
-          </p>
-          <h1>{record.artist}</h1>
-          <h2>{record.title}</h2>
-          <p>{record.description}</p>
-          <p>Винил · 180 г · 12″ · 33⅓ об/мин</p>
-          <p>
-            {record.has_cover ? "Обложка альбома" : "Временная иллюстрация обложки"}
-          </p>
-          <div className="price">{money(record.price)}</div>
-          <p>{record.stock ? `В наличии: ${record.stock} шт.` : "Нет в наличии"}</p>
-          <div className="actions">
-            <button
-              className="button dark"
-              disabled={!record.stock}
-              onClick={() => store.add(record)}
-            >
-              В корзину +
-            </button>
-            <button className="button" onClick={() => store.favorite(record.id)}>
-              {store.favorites.includes(record.id) ? "♥ В избранном" : "♡ В избранное"}
-            </button>
+    <div className="product-page">
+      <section className="product-top">
+        <Link className="back-link" to="/catalog">
+          ← Каталог
+        </Link>
+        <div className="album-detail">
+          <Cover record={record} />
+          <div className="product-info">
+            <div className="product-tools">
+              <span className="product-format">LP · {record.year}</span>
+              <button
+                className="plain-button"
+                aria-label="Поделиться альбомом"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(window.location.href);
+                    store.notify("Ссылка скопирована");
+                  } catch {
+                    store.notify("Ссылка на альбом: " + window.location.href);
+                  }
+                }}
+              >
+                <DesignIcon src={a.imgBasilShareSolid} />
+              </button>
+              <button
+                className="plain-button"
+                aria-label="В избранное"
+                aria-pressed={store.favorites.includes(record.id)}
+                onClick={() => store.favorite(record.id)}
+              >
+                {store.favorites.includes(record.id) ? (
+                  <DesignIcon src="/design/heart-saved.svg" />
+                ) : (
+                  <DesignIcon src={a.imgGroup3} />
+                )}
+              </button>
+            </div>
+            <h1>{record.title}</h1>
+            <h2>{record.artist}</h2>
+            <p>{record.description}</p>
+            <div className="product-buy">
+              <span className="price">{money(record.price)}</span>
+              <button
+                className="button"
+                disabled={!record.stock}
+                onClick={() => store.add(record)}
+              >
+                В корзину <DesignIcon src={a.imgVector1} />
+              </button>
+            </div>
+            <small>
+              {record.stock ? `В наличии: ${record.stock} шт.` : "Нет в наличии"}
+            </small>
           </div>
-          <p className="muted">Самовывоз — бесплатно. Оплата при получении.</p>
         </div>
-      </div>
+        <div className="specifications">
+          <h2>Характеристики</h2>
+          <dl>
+            {[
+              ["Исполнитель", record.artist],
+              ["Альбом", record.title],
+              ["Год выпуска", record.year],
+              ["Жанр", record.genre],
+              ["Носитель", "Виниловая пластинка"],
+              ["Получение", "Самовывоз"],
+            ].map(([key, value]) => (
+              <div key={key}>
+                <dt>{key}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+      <Radio key={record.id} record={record} />
       {!!similar.length && (
-        <>
-          <h2>На похожей частоте</h2>
+        <section className="collection-panel related">
+          <h2>Похожие альбомы</h2>
           <div className="record-grid">
             {similar.map((r) => (
               <AlbumCard record={r} key={r.id} />
             ))}
           </div>
-        </>
+        </section>
       )}
-    </section>
+    </div>
   );
 }

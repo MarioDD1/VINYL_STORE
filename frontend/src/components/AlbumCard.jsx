@@ -1,3 +1,4 @@
+import { DesignIcon, homeAssets } from "./Design";
 import { Link } from "react-router-dom";
 import { useStore } from "../app/StoreContext";
 import { money } from "../api/client";
@@ -36,18 +37,13 @@ export default function AlbumCard({ record }) {
           aria-label={saved ? "Убрать из избранного" : "В избранное"}
           onClick={() => store.favorite(record.id)}
         >
-          {saved ? "♥" : "♡"}
+          <DesignIcon src={saved ? "/design/heart-saved.svg" : homeAssets.imgGroup1} />
         </button>
-        <span className="format-tag">LP · 180 G</span>
-      </div>
-      <div className="album-meta">
-        <span>{record.genre}</span>
-        <span>{record.year}</span>
       </div>
       <Link className="album-title" to={`/albums/${record.id}`}>
-        {record.artist}
+        {record.title}
       </Link>
-      <div className="album-name">{record.title}</div>
+      <div className="album-name">{record.artist}</div>
       <div className="album-bottom">
         <span className="price">{money(record.price)}</span>
         <button
@@ -55,7 +51,13 @@ export default function AlbumCard({ record }) {
           disabled={!record.stock}
           onClick={() => store.add(record)}
         >
-          {record.stock ? "В корзину +" : "Нет в наличии"}
+          {record.stock ? (
+            <>
+              В корзину <DesignIcon src={homeAssets.imgVector1} />
+            </>
+          ) : (
+            "Нет в наличии"
+          )}
         </button>
       </div>
     </article>
