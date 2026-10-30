@@ -101,3 +101,23 @@ def add_extra_albums(db):
                 "VALUES(?,?,?,?,?,?,?,?)", album
             )
     db.execute("INSERT INTO migrations VALUES(?)", (migration,))
+
+
+def add_genre_albums(db):
+    """Add the wider demo assortment once, preserving edits and retired records."""
+    import json
+    from pathlib import Path
+
+    migration = "spin_genre_expansion_v1"
+    if db.execute("SELECT 1 FROM migrations WHERE name=?", (migration,)).fetchone():
+        return
+    albums = json.loads(Path(__file__).with_name("catalog_expansion.json").read_text(encoding="utf-8"))
+    for index, (artist, title, genre, year) in enumerate(albums):
+        if db.execute("SELECT 1 FROM records WHERE lower(artist)=lower(?) AND lower(title)=lower(?)", (artist, title)).fetchone():
+            continue
+        db.execute(
+            "INSERT INTO records (artist,title,genre,year,price,stock,description,cover) VALUES(?,?,?,?,?,?,?,?)",
+            (artist, title, genre, year, 3490 + (index % 8) * 500, 5 + index % 10,
+             f"{artist} — {title}. Альбом в коллекции {genre.lower()}. Виниловое издание для домашнего прослушивания.", index % 12),
+        )
+    db.execute("INSERT INTO migrations VALUES(?)", (migration,))

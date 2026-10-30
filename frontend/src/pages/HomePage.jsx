@@ -1,105 +1,95 @@
-import CatalogPage from "./CatalogPage";
-
+﻿import { Link } from "react-router-dom";
+import { useStore } from "../app/StoreContext";
+import AlbumCard from "../components/AlbumCard";
+import { DesignIcon, Genres, Radio, homeAssets as a } from "../components/Design";
 export default function HomePage() {
+  const { records } = useStore();
+  const popular = records.slice(0, 3);
+  const newest = [...records].sort((x, y) => y.year - x.year).slice(0, 3);
   return (
     <>
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="eyebrow">
-            <span></span>
-            ДЛЯ ТЕХ, КТО СЛУШАЕТ
-          </p>
-          <h1>
-            Хорошая музыка.
-            <br />
-            В правильном
-            <br />
-            <em>формате.</em>
-          </h1>
-          <p className="hero-description">
-            Тот самый звук. Настоящие обложки. Особенный ритуал.
-            <br />
-            Найдите пластинку, которая станет частью вашей истории.
-          </p>
-          <a className="button dark" href="#catalog">
-            Найти свою пластинку
-            <span>↗</span>
-          </a>
-          <div className="hero-footnote">
-            <span className="tiny-disc">◉</span>
-            От первой пластинки до большой коллекции
-          </div>
+      <section className="spin-hero">
+        <div className="hero-photo">
+          <img
+            src={a.imgFrame125}
+            alt="Меломаны слушают винил среди любимых альбомов"
+          />
         </div>
-        <div className="hero-art">
-          <div className="orbit orbit-one"></div>
-          <div className="orbit orbit-two"></div>
-          <span className="art-caption">
-            ANALOG SOUND.
-            <br />
-            TIMELESS FEELING.
-          </span>
-          <div className="record">
-            <div className="record-label">
-              <span>VINYL ROOM</span>
-              <b>VR</b>
-              <small>SIDE A · 33⅓ RPM</small>
-            </div>
+        <div className="hero-brand">
+          <div>
+            <DesignIcon src={a.imgVector} />
+            <strong>SPIN</strong>
+            <p>Эксклюзивные и популярные пластинки со всего мира</p>
           </div>
-          <div className="hero-sleeve">
-            <div className="sleeve-lines"></div>
-            <small>THE ART OF LISTENING</small>
-            <strong>
-              FEEL
-              <br />
-              EVERY
-              <br />
-              <i>GROOVE.</i>
-            </strong>
-            <span>VOL. 001 &nbsp; / &nbsp; STEREO</span>
-          </div>
-          <div className="round-sticker">
-            ЗВУК,
-            <br />
-            КОТОРЫЙ
-            <br />
-            ЧУВСТВУЕШЬ
-            <b>↗</b>
-          </div>
-          <span className="art-index">01 — ∞</span>
+          <Link to="/catalog">Каталог</Link>
+        </div>
+        <h1>Give it a spin</h1>
+      </section>
+      <section className="collection-panel" id="popular">
+        <div className="collection-heading">
+          <h2>Популярное</h2>
+          <Link to="/catalog" aria-label="Все популярные пластинки">
+            <DesignIcon className="section-arrow" src={a.imgAkarIconsArrowDown} />
+          </Link>
+        </div>
+        <div className="record-grid featured">
+          {popular.map((record) => (
+            <AlbumCard key={record.id} record={record} />
+          ))}
         </div>
       </section>
-      <div className="benefits">
-        <span>
-          ◎<b>Бережная упаковка</b>
-          для каждой пластинки
-        </span>
-        <span>
-          ♫<b>Разные жанры</b>
-          одно увлечение
-        </span>
-        <span>
-          ↗<b>Новые открытия</b>в вашей коллекции
-        </span>
-      </div>
-      <CatalogPage />
-      <section className="about" id="about">
-        <span className="about-icon">✳</span>
+      <section className="collection-panel" id="new">
+        <div className="collection-heading reversed">
+          <h2>Новинки</h2>
+          <Link to="/catalog?sort=year" aria-label="Все новинки">
+            <DesignIcon
+              className="section-arrow reverse"
+              src={a.imgAkarIconsArrowDown1}
+            />
+          </Link>
+        </div>
+        <div className="record-grid featured">
+          {newest.map((record) => (
+            <AlbumCard key={record.id} record={record} />
+          ))}
+        </div>
+      </section>
+      <section className="spin-about" id="about">
         <div>
-          <p className="eyebrow">МЕНЬШЕ ШУМА. БОЛЬШЕ МУЗЫКИ.</p>
           <h2>
-            Поставьте жизнь
-            <br />
-            на нужную скорость.
+            Give it
+            <br />a spin
           </h2>
+          <strong>
+            Мы создаем пространство для меломанов, коллекционеров и всех, кто считает,
+            что некоторые вещи лучше звучат на виниле
+          </strong>
+          <p>
+            Мы собираем культовые альбомы, редкие находки и пластинки, которые давно
+            хотелось добавить в коллекцию. Здесь можно найти любимых исполнителей,
+            открыть для себя что-то новое или просто хорошо провести время выбирая, что
+            послушать сегодня.
+          </p>
+          <p>
+            Мы любим музыку во всех её проявлениях и считаем, что винил — это ещё один
+            способ получать от неё удовольствие.
+          </p>
+          <Link className="button white" to="/catalog">
+            Перейти в каталог
+          </Link>
         </div>
-        <p>
-          Мы верим в музыку, к которой хочется возвращаться. В шорох иглы, большие
-          обложки и альбомы, которые слушают целиком.
-          <br />
-          <br />
-          VINYL ROOM — место для вашей следующей любимой пластинки.
-        </p>
+        <DesignIcon className="about-mascot" src={a.imgImage11Vectorized} />
       </section>
+      <section className="collection-panel" id="genres">
+        <div className="collection-heading">
+          <h2>Жанры</h2>
+          <Link to="/catalog" aria-label="Все жанры">
+            <DesignIcon className="section-arrow" src={a.imgAkarIconsArrowDown2} />
+          </Link>
+        </div>
+        <Genres />
+      </section>
+      <Radio />
     </>
   );
 }

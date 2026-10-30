@@ -1,6 +1,7 @@
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -131,15 +132,54 @@ class Handler(BaseHTTPRequestHandler):
             ".jpeg": "image/jpeg",
             ".png": "image/png",
             ".webp": "image/webp",
+            ".ttf": "font/ttf",
+            ".woff2": "font/woff2",
+            ".mp3": "audio/mpeg",
         }
-        self.send_response(200)
+        size = target.stat().st_size
+        start, end = 0, size - 1
+        partial = self.headers.get("Range") if target.suffix == ".mp3" else None
+        if partial:
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", partial)
+            if match and any(match.groups()):
+                first, last = match.groups()
+                start = int(first) if first else max(0, size - int(last))
+                end = min(int(last), size - 1) if first and last else size - 1
+            else:
+                start = size
+            if start > end or start >= size:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+        self.send_response(206 if partial else 200)
+        self.send_header("Content-Length", str(end - start + 1))
+        if target.suffix == ".mp3":
+            self.send_header("Accept-Ranges", "bytes")
+        if partial:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.send_header(
             "Content-Type", types.get(target.suffix, "application/octet-stream")
         )
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write(target.read_bytes())
+        if target.suffix != ".mp3":
+            self.wfile.write(target.read_bytes())
+            return
+        try:
+            with target.open("rb") as source:
+                source.seek(start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    chunk = source.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass  # Switching tracks may cancel an in-flight audio request.
 
     def build_required(self):
         # This is a setup notice, not a second implementation of the website.

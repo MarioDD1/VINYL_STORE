@@ -7,7 +7,10 @@ test("guest, customer checkout and administrator artwork upload", async ({
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Хорошая музыка/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Give it a spin/i, level: 1 }),
+  ).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: "test-results/home.png", fullPage: true });
   await page.getByRole("link", { name: "Каталог", exact: true }).click();
   await page.getByRole("searchbox").fill("Radiohead");
@@ -22,7 +25,7 @@ test("guest, customer checkout and administrator artwork upload", async ({
   await expect(
     page.getByRole("heading", { name: "In Rainbows", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "В корзину +", exact: true }).first().click();
+  await page.getByRole("button", { name: "В корзину", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Регистрация", exact: true }).click();
   await dialog.getByLabel("Ваше имя").fill("Покупатель");
@@ -30,7 +33,7 @@ test("guest, customer checkout and administrator artwork upload", async ({
   await dialog.getByLabel("Пароль", { exact: true }).fill("react-test-password");
   await dialog.getByRole("button", { name: "Создать аккаунт", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await page.getByRole("button", { name: "В корзину +", exact: true }).first().click();
+  await page.getByRole("button", { name: "В корзину", exact: true }).first().click();
   await page.getByRole("link", { name: /Корзина/ }).click();
   await page.getByRole("button", { name: /Оформить заказ/ }).click();
   await page.getByLabel("Телефон", { exact: true }).fill("+7 999 123 45 67");
@@ -39,7 +42,7 @@ test("guest, customer checkout and administrator artwork upload", async ({
     .fill("Москва, улица Примерная, дом 10");
   await page.getByRole("button", { name: "Подтвердить заказ" }).click();
   await expect(page.getByRole("heading", { name: /Заказ №.*оформлен/ })).toBeVisible();
-  await page.getByRole("link", { name: "Мои заказы" }).click();
+  await page.getByRole("link", { name: "Мои заказы" }).first().click();
   await expect(page.locator(".order")).toHaveCount(1);
   await page.goto("/admin");
   await expect(
@@ -47,7 +50,7 @@ test("guest, customer checkout and administrator artwork upload", async ({
   ).toBeVisible();
   await page.goto("/account");
   await page.getByRole("button", { name: "Выйти из аккаунта" }).click();
-  await page.getByRole("button", { name: /Войти/ }).click();
+  await page.getByRole("button", { name: "Войти", exact: true }).click();
   await dialog.getByRole("button", { name: "Регистрация", exact: true }).click();
   await dialog.getByLabel("Ваше имя").fill("Администратор");
   await dialog.getByLabel("Email").fill("react-admin@example.com");
@@ -86,15 +89,20 @@ test("guest, customer checkout and administrator artwork upload", async ({
   await expect(dialog).not.toBeVisible();
   await page.goto("/catalog?q=Browser");
   await expect(page.locator(".album")).toHaveCount(1);
-  await expect(page.locator(".album img")).toHaveAttribute("src", /covers\/uploads/);
+  await expect(page.locator(".cover-open img")).toHaveAttribute(
+    "src",
+    /covers\/uploads/,
+  );
   await expect
-    .poll(() => page.locator(".album img").evaluate((img) => img.naturalWidth))
+    .poll(() => page.locator(".cover-open img").evaluate((img) => img.naturalWidth))
     .toBeGreaterThan(0);
   const forbidden = await request.post("/api/admin/cover/1", { data: "not an image" });
   expect(forbidden.status()).toBe(403);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Хорошая музыка/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Give it a spin/i, level: 1 }),
+  ).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     .toBe(true);

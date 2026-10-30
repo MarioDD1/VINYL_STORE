@@ -1,20 +1,23 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../../app/StoreContext";
 import { api, money } from "../../api/client";
-import { Cover } from "../../components/AlbumCard";
-
+import AlbumCard, { Cover } from "../../components/AlbumCard";
+import { DesignIcon, cartAssets } from "../../components/Design";
 export default function CartPage() {
   const store = useStore();
-  const [checkout, setCheckout] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [orderId, setOrderId] = useState(null);
+  const [checkout, setCheckout] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [orderId, setOrderId] = useState(null);
   const lines = Object.entries(store.cart).map(([id, quantity]) => ({
     id: Number(id),
     quantity,
     record: store.records.find((r) => r.id === Number(id)),
   }));
+  const total = lines.reduce((sum, l) => sum + (l.record?.price || 0) * l.quantity, 0),
+    count = lines.reduce((sum, l) => sum + l.quantity, 0);
+  const unavailable = lines.some((l) => !l.record || l.quantity > l.record.stock);
   function quantity(id, next) {
     store.setCart((previous) => {
       const copy = { ...previous };
@@ -51,114 +54,136 @@ export default function CartPage() {
       </section>
     );
   return (
-    <section className="page narrow">
-      <h2>Корзина ({lines.length})</h2>
+    <section className="cart-page">
+      <h1>Корзина ({count})</h1>
       {!lines.length ? (
         <div className="empty">
           Корзина пуста. <Link to="/catalog">Выбрать пластинку →</Link>
         </div>
       ) : (
-        <>
-          {lines.map(({ id, record, quantity: count }) => (
-            <div className="cart-line" key={id}>
-              {record && <Cover record={record} />}
-              <div className="line-info">
-                <strong>{record?.artist || "Пластинка недоступна"}</strong>
-                <small>{record?.title}</small>
-                <p>
-                  {record ? money(record.price) : "Удалите товар из корзины"}
-                  {record && count > record.stock ? " · Недостаточно на складе" : ""}
-                </p>
+        <div className="cart-layout">
+          <div className="cart-items">
+            {lines.map(({ id, record, quantity: amount }) => (
+              <div className="cart-line" key={id}>
+                {record && <Cover record={record} />}
+                <div className="line-info">
+                  <strong>
+                    {record ? (
+                      <Link to={`/albums/${id}`}>{record.title}</Link>
+                    ) : (
+                      "Пластинка недоступна"
+                    )}
+                  </strong>
+                  <small>{record?.artist}</small>
+                  <p>{record ? "Виниловая пластинка" : "Удалите товар из корзины"}</p>
+                  {record && amount > record.stock && (
+                    <p role="alert">Недостаточно на складе</p>
+                  )}
+                </div>
+                <span className="cart-line-price">{record && money(record.price)}</span>
+                <div className="cart-line-actions">
+                  <div className="quantity">
+                    <button
+                      disabled={busy}
+                      onClick={() => quantity(id, amount - 1)}
+                      aria-label="Уменьшить количество"
+                    >
+                      −
+                    </button>
+                    <span>{amount}</span>
+                    <button
+                      disabled={busy || !record || amount >= record.stock}
+                      onClick={() => quantity(id, amount + 1)}
+                      aria-label="Увеличить количество"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    className="remove"
+                    disabled={busy}
+                    onClick={() => quantity(id, 0)}
+                    aria-label="Удалить из корзины"
+                  >
+                    <DesignIcon src={cartAssets.imgTrash} />
+                  </button>
+                </div>
               </div>
-              <div className="quantity">
-                <button
-                  disabled={busy}
-                  onClick={() => quantity(id, count - 1)}
-                  aria-label="Уменьшить количество"
-                >
-                  −
-                </button>
-                <span>{count}</span>
-                <button
-                  disabled={busy || !record || count >= record.stock}
-                  onClick={() => quantity(id, count + 1)}
-                  aria-label="Увеличить количество"
-                >
-                  +
-                </button>
-              </div>
-              <button
-                className="remove"
-                disabled={busy}
-                onClick={() => quantity(id, 0)}
-                aria-label="Удалить из корзины"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          <div className="total">
-            <span>Итого</span>
-            <span>
-              {money(
-                lines.reduce(
-                  (total, l) => total + (l.record?.price || 0) * l.quantity,
-                  0,
-                ),
-              )}
-            </span>
+            ))}
           </div>
-          <p>
-            Самовывоз — бесплатно. Оплата при получении. Учебный магазин: реальные
-            платежи и доставка не выполняются.
-          </p>
-          {checkout && store.user ? (
-            <form className="surface" onSubmit={submit}>
-              <label>
-                Телефон
-                <input
-                  name="phone"
-                  type="tel"
-                  autoComplete="tel"
-                  required
-                  maxLength={40}
-                />
-              </label>
-              <label>
-                Город и адрес для связи
-                <textarea
-                  name="address"
-                  autoComplete="street-address"
-                  minLength={10}
-                  maxLength={500}
-                  required
-                />
-              </label>
-              <div className="form-error" role="alert">
-                {error}
-              </div>
+          <aside className="cart-summary">
+            <h2>Итог</h2>
+            <div className="summary-line">
+              <span>Товары ({count})</span>
+              <b>{money(total)}</b>
+            </div>
+            <div className="summary-line">
+              <span>Самовывоз</span>
+              <b>Бесплатно</b>
+            </div>
+            <div className="total">
+              <span>К оплате</span>
+              <span>{money(total)}</span>
+            </div>
+            {checkout && store.user ? (
+              <form className="checkout-form" onSubmit={submit}>
+                <label>
+                  Телефон
+                  <input
+                    name="phone"
+                    type="tel"
+                    autoComplete="tel"
+                    required
+                    maxLength={40}
+                  />
+                </label>
+                <label>
+                  Город и адрес для связи
+                  <textarea
+                    name="address"
+                    autoComplete="street-address"
+                    minLength={10}
+                    maxLength={500}
+                    required
+                  />
+                </label>
+                <div className="form-error" role="alert">
+                  {error}
+                </div>
+                <button
+                  className="button checkout-button"
+                  disabled={busy || unavailable}
+                >
+                  {busy ? "Оформляем…" : "Подтвердить заказ"}
+                </button>
+              </form>
+            ) : (
               <button
-                className="button dark"
-                disabled={
-                  busy || lines.some((l) => !l.record || l.quantity > l.record.stock)
-                }
+                className="button checkout-button"
+                disabled={unavailable}
+                onClick={() => {
+                  if (store.requireUser()) setCheckout(true);
+                }}
               >
-                {busy ? "Оформляем…" : "Подтвердить заказ"}
+                Оформить заказ
               </button>
-            </form>
-          ) : (
-            <button
-              className="button dark"
-              disabled={lines.some((l) => !l.record || l.quantity > l.record.stock)}
-              onClick={() => {
-                if (store.requireUser()) setCheckout(true);
-              }}
-            >
-              Оформить заказ ↗
-            </button>
-          )}
-        </>
+            )}
+            <p>Оплата при получении</p>
+            <p>Учебный магазин — реальные платежи и доставка не выполняются.</p>
+          </aside>
+        </div>
       )}
+      <section className="collection-panel related">
+        <h2>Вам может понравиться</h2>
+        <div className="record-grid">
+          {store.records
+            .filter((r) => !store.cart[r.id])
+            .slice(0, 4)
+            .map((record) => (
+              <AlbumCard key={record.id} record={record} />
+            ))}
+        </div>
+      </section>
     </section>
   );
 }

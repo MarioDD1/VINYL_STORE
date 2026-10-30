@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Рок",
+    "src": "/design/genres/genre-1.svg"
+  },
+  {
+    "name": "Поп",
+    "src": "/design/genres/genre-2.svg"
+  },
+  {
+    "name": "Классика",
+    "src": "/design/genres/genre-3.svg"
+  },
+  {
+    "name": "Джаз",
+    "src": "/design/genres/genre-4.svg"
+  },
+  {
+    "name": "Панк",
+    "src": "/design/genres/genre-5.svg"
+  },
+  {
+    "name": "Хип-хоп",
+    "src": "/design/genres/genre-6.svg"
+  },
+  {
+    "name": "EDM",
+    "src": "/design/genres/genre-7.svg"
+  },
+  {
+    "name": "Метал",
+    "src": "/design/genres/genre-8.svg"
+  },
+  {
+    "name": "R&B",
+    "src": "/design/genres/genre-9.svg"
+  },
+  {
+    "name": "Lo-fi",
+    "src": "/design/genres/genre-10.svg"
+  },
+  {
+    "name": "Блюз",
+    "src": "/design/genres/genre-11.svg"
+  },
+  {
+    "name": "Кантри",
+    "src": "/design/genres/genre-12.svg"
+  },
+  {
+    "name": "Инди",
+    "src": "/design/genres/genre-13.svg"
+  },
+  {
+    "name": "Альтернатива",
+    "src": "/design/genres/genre-14.svg"
+  },
+  {
+    "name": "Регги",
+    "src": "/design/genres/genre-15.svg"
+  },
+  {
+    "name": "K-pop",
+    "src": "/design/genres/genre-16.svg"
+  },
+  {
+    "name": "Электронная",
+    "src": "/design/genres/genre-17.svg"
+  },
+  {
+    "name": "Соул",
+    "src": "/design/genres/genre-18.svg"
+  },
+  {
+    "name": "Фанк",
+    "src": "/design/genres/genre-19.svg"
+  },
+  {
+    "name": "Диско",
+    "src": "/design/genres/genre-20.svg"
+  }
+]
