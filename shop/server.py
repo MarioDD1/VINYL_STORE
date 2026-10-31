@@ -3,18 +3,87 @@ import json
 import os
 import re
 import secrets
-import sqlite3
+import smtplib
+import ssl
 import time
+from email.message import EmailMessage
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
-from .database import ROOT, connect, init, password_hash
+from .database import (
+    ROOT,
+    connect,
+    init,
+    password_hash,
+    sqlite3,
+    verification_code_hash,
+)
 from .covers import cover_info
 from . import covers
 from .uploads import MAX_UPLOAD_BYTES, save_cover
 
 INVITE = os.environ.get("ADMIN_INVITE_CODE") or secrets.token_urlsafe(12)
 STATUSES = ["Новый", "В обработке", "Отправлен", "Завершён", "Отменён"]
+VERIFICATION_TTL = 15 * 60
+VERIFICATION_RESEND_DELAY = 60
+VERIFICATION_MAX_ATTEMPTS = 5
+
+
+class EmailDeliveryError(Exception):
+    pass
+
+
+def send_verification_email(email, code):
+    host = os.environ.get("SMTP_HOST", "").strip()
+    sender = os.environ.get("SMTP_FROM", "").strip()
+    username = os.environ.get("SMTP_USERNAME", "").strip()
+    password = os.environ.get("SMTP_PASSWORD", "")
+    if not host or not sender or (username and not password):
+        raise EmailDeliveryError(
+            "Почта не настроена: задайте SMTP_HOST и SMTP_FROM "
+            "(а для авторизации — SMTP_USERNAME и SMTP_PASSWORD)"
+        )
+    try:
+        port = int(os.environ.get("SMTP_PORT", "465" if os.environ.get(
+            "SMTP_USE_SSL", ""
+        ).lower() in ("1", "true", "yes") else "587"))
+        timeout = float(os.environ.get("SMTP_TIMEOUT", "15"))
+        if not 1 <= port <= 65535 or timeout <= 0:
+            raise ValueError
+    except ValueError as error:
+        raise EmailDeliveryError("Некорректные SMTP_PORT или SMTP_TIMEOUT") from error
+
+    message = EmailMessage()
+    message["Subject"] = "Подтверждение регистрации VINYL ROOM"
+    message["From"] = sender
+    message["To"] = email
+    message.set_content(
+        "Чтобы завершить регистрацию в VINYL ROOM, введите код: "
+        f"{code}\nКод действует 15 минут."
+    )
+    try:
+        if os.environ.get("SMTP_USE_SSL", "").lower() in ("1", "true", "yes"):
+            with smtplib.SMTP_SSL(
+                host, port, timeout=timeout, context=ssl.create_default_context()
+            ) as smtp:
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(message)
+        else:
+            with smtplib.SMTP(host, port, timeout=timeout) as smtp:
+                smtp.ehlo()
+                if os.environ.get("SMTP_STARTTLS", "true").lower() not in (
+                    "0",
+                    "false",
+                    "no",
+                ):
+                    smtp.starttls(context=ssl.create_default_context())
+                    smtp.ehlo()
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(message)
+    except (OSError, smtplib.SMTPException) as error:
+        raise EmailDeliveryError("Не удалось отправить письмо с кодом подтверждения") from error
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -37,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return None
         row = db.execute(
-            "SELECT users.id,name,email,role FROM users JOIN sessions ON"
+            "SELECT users.id,name,email,role,points,email_verified FROM users JOIN sessions ON"
             " users.id=sessions.user_id WHERE token=? AND expires>?",
             (token, time.time()),
         ).fetchone()
@@ -226,6 +295,8 @@ npm run build</pre>
             with connect() as db:
                 result, cookie = self.mutate(db, urlparse(self.path).path, body)
             self.reply(result, cookie=cookie)
+        except EmailDeliveryError as error:
+            self.reply({"error": str(error)}, 503)
         except PermissionError as error:
             self.reply({"error": str(error)}, 403)
         except (ValueError, KeyError, TypeError) as error:
@@ -261,53 +332,139 @@ npm run build</pre>
 
     def mutate(self, db, path, b):
         user = self.user(db)
-        if path in ["/api/register", "/api/login"]:
+        if path == "/api/register":
             email = str(b.get("email", "")).strip().lower()
             password = str(b.get("password", ""))
-            if path.endswith("register"):
-                name = str(b.get("name", "")).strip()
-                if (
-                    not 2 <= len(name) <= 80
-                    or "@" not in email
-                    or len(email) > 200
-                    or not 8 <= len(password) <= 200
-                ):
-                    raise ValueError(
-                        "Укажите имя, корректный email и пароль от 8 до 200 символов"
-                    )
-                role = b.get("role", "customer")
-                if role not in ["customer", "admin"]:
-                    raise ValueError("Неизвестная роль")
-                if role == "admin" and not hmac.compare_digest(
-                    str(b.get("invite", "")), INVITE
-                ):
-                    raise PermissionError("Неверный код приглашения администратора")
-                uid = db.execute(
-                    "INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)",
-                    (name, email, password_hash(password), role),
-                ).lastrowid
-            else:
-                row = db.execute(
-                    "SELECT * FROM users WHERE email=?", (email,)
-                ).fetchone()
-                if (
-                    len(password) > 200
-                    or not row
-                    or not hmac.compare_digest(
-                        row["password"],
-                        password_hash(password, row["password"].split(":")[0]),
-                    )
-                ):
-                    raise ValueError("Неверный email или пароль")
-                uid = row["id"]
-            token = secrets.token_urlsafe(32)
-            db.execute("DELETE FROM sessions WHERE expires<?", (time.time(),))
-            db.execute(
-                "INSERT INTO sessions VALUES(?,?,?)", (token, uid, time.time() + 604800)
+            name = str(b.get("name", "")).strip()
+            if (
+                not 2 <= len(name) <= 80
+                or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
+                or len(email) > 200
+                or not 8 <= len(password) <= 200
+            ):
+                raise ValueError(
+                    "Укажите имя, корректный email и пароль от 8 до 200 символов"
+                )
+            role = b.get("role", "customer")
+            if role not in ["customer", "admin"]:
+                raise ValueError("Неизвестная роль")
+            if role == "admin" and not hmac.compare_digest(
+                str(b.get("invite", "")), INVITE
+            ):
+                raise PermissionError("Неверный код приглашения администратора")
+            if db.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+                raise ValueError("Этот email уже зарегистрирован")
+            now = time.time()
+            pending = db.execute(
+                "SELECT sent_at FROM pending_registrations WHERE email=?", (email,)
+            ).fetchone()
+            if pending and now - pending["sent_at"] < VERIFICATION_RESEND_DELAY:
+                return {
+                    "ok": True,
+                    "verification_required": True,
+                    "email": email,
+                }, None
+            code = f"{secrets.randbelow(1_000_000):06d}"
+            values = (
+                name,
+                password_hash(password),
+                role,
+                verification_code_hash(code),
+                now + VERIFICATION_TTL,
+                now,
             )
-            return {
-                "ok": True
-            }, f"session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800"
+            if pending:
+                db.execute(
+                    "UPDATE pending_registrations SET name=?,password=?,role=?,"
+                    "code_hash=?,expires=?,sent_at=?,attempts=0 WHERE email=?",
+                    (*values, email),
+                )
+            else:
+                db.execute(
+                    "INSERT INTO pending_registrations"
+                    "(email,name,password,role,code_hash,expires,sent_at)"
+                    " VALUES(?,?,?,?,?,?,?)",
+                    (email, *values),
+                )
+            send_verification_email(email, code)
+            return {"ok": True, "verification_required": True, "email": email}, None
+        if path == "/api/resend-verification":
+            email = str(b.get("email", "")).strip().lower()
+            pending = db.execute(
+                "SELECT sent_at FROM pending_registrations WHERE email=?", (email,)
+            ).fetchone()
+            if not pending:
+                raise ValueError("Регистрация не найдена. Заполните форму заново")
+            now = time.time()
+            if now - pending["sent_at"] < VERIFICATION_RESEND_DELAY:
+                wait = int(VERIFICATION_RESEND_DELAY - (now - pending["sent_at"]))
+                raise ValueError(f"Повторно запросить код можно через {wait} сек.")
+            code = f"{secrets.randbelow(1_000_000):06d}"
+            db.execute(
+                "UPDATE pending_registrations SET code_hash=?,expires=?,sent_at=?,"
+                "attempts=0 WHERE email=?",
+                (verification_code_hash(code), now + VERIFICATION_TTL, now, email),
+            )
+            send_verification_email(email, code)
+            return {"ok": True, "email": email}, None
+        if path == "/api/verify-email":
+            email = str(b.get("email", "")).strip().lower()
+            code = str(b.get("code", "")).strip()
+            pending = db.execute(
+                "SELECT * FROM pending_registrations WHERE email=?", (email,)
+            ).fetchone()
+            if not pending:
+                raise ValueError("Код не найден. Начните регистрацию заново")
+            if pending["expires"] <= time.time():
+                db.execute("DELETE FROM pending_registrations WHERE email=?", (email,))
+                db.commit()
+                raise ValueError("Срок действия кода истёк. Запросите новый")
+            if pending["attempts"] >= VERIFICATION_MAX_ATTEMPTS:
+                db.execute("DELETE FROM pending_registrations WHERE email=?", (email,))
+                db.commit()
+                raise ValueError("Лимит попыток исчерпан. Начните регистрацию заново")
+            if not re.fullmatch(r"\d{6}", code) or not hmac.compare_digest(
+                pending["code_hash"], verification_code_hash(code)
+            ):
+                attempts = pending["attempts"] + 1
+                if attempts >= VERIFICATION_MAX_ATTEMPTS:
+                    db.execute(
+                        "DELETE FROM pending_registrations WHERE email=?", (email,)
+                    )
+                else:
+                    db.execute(
+                        "UPDATE pending_registrations SET attempts=? WHERE email=?",
+                        (attempts, email),
+                    )
+                db.commit()
+                raise ValueError("Неверный код подтверждения")
+            uid = db.execute(
+                "INSERT INTO users(name,email,password,role,email_verified)"
+                " VALUES(?,?,?,?,1)",
+                (
+                    pending["name"],
+                    email,
+                    pending["password"],
+                    pending["role"],
+                ),
+            ).lastrowid
+            db.execute("DELETE FROM pending_registrations WHERE email=?", (email,))
+            return self.create_session(db, uid)
+        if path == "/api/login":
+            email = str(b.get("email", "")).strip().lower()
+            password = str(b.get("password", ""))
+            row = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+            if (
+                len(password) > 200
+                or not row
+                or not row["email_verified"]
+                or not hmac.compare_digest(
+                    row["password"],
+                    password_hash(password, row["password"].split(":")[0]),
+                )
+            ):
+                raise ValueError("Неверный email или пароль")
+            return self.create_session(db, row["id"])
         if path == "/api/logout":
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
             if "session" in cookie:
@@ -350,7 +507,7 @@ npm run build</pre>
             if not isinstance(items, list) or not 1 <= len(items) <= 100:
                 raise ValueError("Корзина пуста или слишком велика")
             db.execute("BEGIN IMMEDIATE")
-            lines, seen, total = [], set(), 0
+            lines, seen, subtotal = [], set(), 0
             for item in items:
                 rid, qty = int(item["id"]), int(item["quantity"])
                 r = db.execute(
@@ -361,19 +518,53 @@ npm run build</pre>
                         "Недостаточно пластинок на складе. Обновите корзину"
                     )
                 seen.add(rid)
-                total += r["price"] * qty
+                subtotal += r["price"] * qty
                 lines.append((rid, r["artist"] + " — " + r["title"], r["price"], qty))
+            points_to_use = b.get("points_to_use", 0)
+            if isinstance(points_to_use, bool) or not isinstance(points_to_use, int):
+                raise ValueError("Количество баллов должно быть целым числом")
+            account = db.execute(
+                "SELECT points FROM users WHERE id=?", (user["id"],)
+            ).fetchone()
+            points_limit = min(account["points"], subtotal * 30 // 100)
+            if not 0 <= points_to_use <= points_limit:
+                raise ValueError(
+                    f"Можно списать не более {points_limit} баллов с учётом баланса и лимита 30%"
+                )
+            total = subtotal - points_to_use
+            points_earned = total * 5 // 100
             oid = db.execute(
-                "INSERT INTO orders(user_id,total,address,phone) VALUES(?,?,?,?)",
-                (user["id"], total, address, phone),
+                "INSERT INTO orders(user_id,total,subtotal,points_used,points_earned,"
+                "address,phone) VALUES(?,?,?,?,?,?,?)",
+                (
+                    user["id"],
+                    total,
+                    subtotal,
+                    points_to_use,
+                    points_earned,
+                    address,
+                    phone,
+                ),
             ).lastrowid
+            if points_to_use:
+                db.execute(
+                    "UPDATE users SET points=points-? WHERE id=?",
+                    (points_to_use, user["id"]),
+                )
             for rid, title, price, qty in lines:
                 db.execute(
                     "INSERT INTO order_items VALUES(?,?,?,?,?)",
                     (oid, rid, title, price, qty),
                 )
                 db.execute("UPDATE records SET stock=stock-? WHERE id=?", (qty, rid))
-            return {"ok": True, "id": oid}, None
+            return {
+                "ok": True,
+                "id": oid,
+                "subtotal": subtotal,
+                "points_used": points_to_use,
+                "points_earned": points_earned,
+                "total": total,
+            }, None
         elif path.startswith("/api/admin/"):
             if user["role"] != "admin":
                 raise PermissionError("Доступ только для администратора")
@@ -441,6 +632,15 @@ npm run build</pre>
                             "UPDATE records SET stock=stock+? WHERE id=?",
                             (line["quantity"], line["record_id"]),
                         )
+                    db.execute(
+                        "UPDATE users SET points=points+? WHERE id=?",
+                        (order["points_used"], order["user_id"]),
+                    )
+                if status == "Завершён" and order["status"] != status:
+                    db.execute(
+                        "UPDATE users SET points=points+? WHERE id=?",
+                        (order["points_earned"], order["user_id"]),
+                    )
                 db.execute(
                     "UPDATE orders SET status=? WHERE id=?", (status, order["id"])
                 )
@@ -449,6 +649,16 @@ npm run build</pre>
         else:
             raise ValueError("Неизвестное действие")
         return {"ok": True}, None
+
+    def create_session(self, db, uid):
+        token = secrets.token_urlsafe(32)
+        db.execute("DELETE FROM sessions WHERE expires<?", (time.time(),))
+        db.execute(
+            "INSERT INTO sessions VALUES(?,?,?)", (token, uid, time.time() + 604800)
+        )
+        return {
+            "ok": True
+        }, f"session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800"
 
 
 def main():

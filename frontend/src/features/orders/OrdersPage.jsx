@@ -66,6 +66,16 @@ export default function OrdersPage() {
                   {item.title} × {item.quantity} — {money(item.price * item.quantity)}
                 </p>
               ))}
+              {order.points_used > 0 && (
+                <p>Списано баллов: {order.points_used}</p>
+              )}
+              {order.points_earned > 0 && (
+                <p>
+                  {order.status === "Завершён"
+                    ? `Начислено баллов: ${order.points_earned}`
+                    : `Будет начислено после завершения: ${order.points_earned}`}
+                </p>
+              )}
               <p>
                 {order.name} · {order.phone}
                 <br />

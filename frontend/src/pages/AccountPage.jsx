@@ -20,6 +20,13 @@ export default function AccountPage() {
       </p>
       <h2>Привет, {store.user.name}</h2>
       <p>{store.user.email}</p>
+      {store.user.role !== "admin" && (
+        <p>
+          Бонусный баланс: <strong>{store.user.points} баллов</strong>. За
+          завершённые заказы начисляется 5% суммы оплаты; баллами можно оплатить
+          до 30% следующего заказа.
+        </p>
+      )}
       <div className="profile-actions">
         <Link className="button dark" to="/orders">
           {store.user.role === "admin" ? "Все заказы магазина" : "Мои заказы"}

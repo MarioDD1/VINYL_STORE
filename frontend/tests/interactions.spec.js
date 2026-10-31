@@ -86,16 +86,27 @@ test("expanded genres, vinyl drag, keyboard, motion preference and favorites", a
   await page.getByRole("button", { name: /Показать ещё/ }).click();
   await expect(page.locator(".catalog .album")).toHaveCount(54);
 
-  const registration = await page.request.post("/api/register", {
-    data: {
-      name: "Motion test",
-      email: "motion@example.com",
-      password: "motion-test-password",
-      role: "customer",
-    },
-  });
-  expect(registration.ok()).toBe(true);
-  await page.reload();
+  await page.goto("/account");
+  await page
+    .getByRole("button", { name: "Войти или зарегистрироваться" })
+    .click();
+  await page.getByRole("button", { name: "Регистрация" }).click();
+  await page.getByLabel("Ваше имя").fill("Motion test");
+  await page.getByLabel("Email").fill("motion@example.com");
+  await page.getByLabel("Пароль").fill("motion-test-password");
+  await page.getByRole("button", { name: "Продолжить", exact: true }).click();
+  await expect(page.getByText("Мы отправили шестизначный код")).toBeVisible();
+  const codeResult = await (
+    await page.request.get(
+      "/__test__/verification-code?email=motion%40example.com",
+    )
+  ).json();
+  await page.getByLabel("Код из письма").fill(codeResult.code);
+  await page
+    .getByRole("button", { name: "Подтвердить и завершить регистрацию" })
+    .click();
+  await expect(page.getByText("Бонусный баланс")).toBeVisible();
+  await page.goto("/catalog");
   await page.locator(".heart").first().click();
   await expect(page.locator(".heart").first()).toHaveAttribute("aria-pressed", "true");
   await page.locator(".heart img").first().evaluate(image => image.decode());

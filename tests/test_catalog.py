@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +9,9 @@ from shop import database
 class CatalogMigrationTests(unittest.TestCase):
     def test_expansion_is_idempotent_and_preserves_edits_and_deletions(self):
         with tempfile.TemporaryDirectory() as directory:
-            with patch.object(database, "DB", Path(directory) / "shop.sqlite3"):
+            with patch.object(database, "DB", Path(directory) / "shop.sqlite3"), patch.dict(
+                os.environ, {"DB_ENCRYPTION_KEY": "a" * 64}
+            ):
                 database.init()
                 with database.connect() as db:
                     self.assertEqual(db.execute("SELECT COUNT(*) FROM records").fetchone()[0], 56)

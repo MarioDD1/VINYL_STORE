@@ -9,7 +9,8 @@ export default function CartPage() {
   const [checkout, setCheckout] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [orderId, setOrderId] = useState(null);
+    [orderId, setOrderId] = useState(null),
+    [pointsToUse, setPointsToUse] = useState(0);
   const lines = Object.entries(store.cart).map(([id, quantity]) => ({
     id: Number(id),
     quantity,
@@ -17,6 +18,9 @@ export default function CartPage() {
   }));
   const total = lines.reduce((sum, l) => sum + (l.record?.price || 0) * l.quantity, 0),
     count = lines.reduce((sum, l) => sum + l.quantity, 0);
+  const maxPoints = Math.min(store.user?.points || 0, Math.floor(total * 0.3));
+  const pointsUsed = Math.min(pointsToUse, maxPoints);
+  const payable = total - pointsUsed;
   const unavailable = lines.some((l) => !l.record || l.quantity > l.record.stock);
   function quantity(id, next) {
     store.setCart((previous) => {
@@ -34,6 +38,7 @@ export default function CartPage() {
       const result = await api("orders", {
         ...Object.fromEntries(new FormData(event.currentTarget)),
         items: lines.map(({ id, quantity }) => ({ id, quantity })),
+        points_to_use: pointsUsed,
       });
       store.setCart({});
       setOrderId(result.id);
@@ -121,9 +126,46 @@ export default function CartPage() {
               <span>Самовывоз</span>
               <b>Бесплатно</b>
             </div>
+            {store.user && (
+              <>
+                <div className="summary-line">
+                  <span>Ваш баланс</span>
+                  <b>{store.user.points} баллов</b>
+                </div>
+                {maxPoints > 0 && (
+                  <label>
+                    Списать баллы (до {maxPoints})
+                    <input
+                      type="number"
+                      min="0"
+                      max={maxPoints}
+                      step="1"
+                      value={pointsUsed}
+                      onChange={(event) =>
+                        setPointsToUse(
+                          Math.floor(
+                            Math.max(
+                              0,
+                              Math.min(maxPoints, Number(event.target.value) || 0),
+                            ),
+                          ),
+                        )
+                      }
+                      disabled={busy}
+                    />
+                  </label>
+                )}
+              </>
+            )}
+            {pointsUsed > 0 && (
+              <div className="summary-line">
+                <span>Скидка баллами</span>
+                <b>−{money(pointsUsed)}</b>
+              </div>
+            )}
             <div className="total">
               <span>К оплате</span>
-              <span>{money(total)}</span>
+              <span>{money(payable)}</span>
             </div>
             {checkout && store.user ? (
               <form className="checkout-form" onSubmit={submit}>

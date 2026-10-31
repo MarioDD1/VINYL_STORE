@@ -1,18 +1,102 @@
 from .catalog import add_extra_albums, add_genre_albums
 
 import hashlib
+import hmac
+import os
 import secrets
-import sqlite3
+import shutil
+import sqlite3 as standard_sqlite3
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+try:
+    from sqlcipher3 import dbapi2 as sqlite3
+except ImportError as error:
+    raise RuntimeError(
+        "Установите зависимости из requirements.txt для работы с зашифрованной БД"
+    ) from error
+
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "data" / "shop.sqlite3"
+SQLITE_HEADER = b"SQLite format 3\x00"
+
+
+def _encryption_key():
+    key = os.environ.get("DB_ENCRYPTION_KEY", "")
+    if len(key) != 64 or any(char not in "0123456789abcdefABCDEF" for char in key):
+        raise RuntimeError(
+            "Задайте DB_ENCRYPTION_KEY как 64 шестнадцатеричных символа "
+            "(32 случайных байта)"
+        )
+    return key.lower()
+
+
+def _apply_key(db, key):
+    db.execute(f"""PRAGMA key = "x'{key}'" """)
+    db.execute("PRAGMA cipher_memory_security = ON")
+
+
+def _migrate_plaintext_database(key):
+    source = standard_sqlite3.connect(DB)
+    try:
+        checkpoint = source.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if checkpoint and checkpoint[0]:
+            raise RuntimeError("Не удалось синхронизировать WAL старой БД")
+        source.execute("PRAGMA journal_mode=DELETE")
+    finally:
+        source.close()
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=DB.name + ".", suffix=".encrypted", dir=DB.parent
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    backup = DB.with_name(DB.name + ".encrypted.bak")
+    if backup.exists():
+        temporary.unlink()
+        raise RuntimeError(
+            f"Файл резервной копии уже существует: {backup}. "
+            "Переместите его перед повторной миграцией."
+        )
+
+    try:
+        source = sqlite3.connect(DB)
+        try:
+            source.execute(
+                f"ATTACH DATABASE ? AS encrypted KEY \"x'{key}'\"",
+                (str(temporary),),
+            )
+            source.execute("SELECT sqlcipher_export('encrypted')")
+            source.execute("DETACH DATABASE encrypted")
+        finally:
+            source.close()
+
+        encrypted = sqlite3.connect(temporary)
+        try:
+            _apply_key(encrypted, key)
+            check = encrypted.execute("PRAGMA integrity_check").fetchone()
+            if not check or check[0] != "ok":
+                raise RuntimeError("Проверка зашифрованной копии БД не пройдена")
+        finally:
+            encrypted.close()
+
+        shutil.copy2(temporary, backup)
+        os.replace(temporary, DB)
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(DB) + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 @contextmanager
 def connect():
-    db = sqlite3.connect(DB)
+    key = _encryption_key()
+    db = sqlite3.connect(DB, timeout=30)
+    _apply_key(db, key)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     try:
@@ -31,7 +115,13 @@ def password_hash(password, salt=None):
 
 
 def init():
+    key = _encryption_key()
     DB.parent.mkdir(exist_ok=True)
+    if DB.is_file():
+        with DB.open("rb") as source:
+            header = source.read(len(SQLITE_HEADER))
+        if header == SQLITE_HEADER:
+            _migrate_plaintext_database(key)
     with connect() as db:
         db.executescript("""
         CREATE TABLE IF NOT EXISTS users (
@@ -39,7 +129,19 @@ def init():
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
-            role TEXT NOT NULL
+            role TEXT NOT NULL,
+            email_verified INTEGER NOT NULL DEFAULT 1,
+            points INTEGER NOT NULL DEFAULT 0 CHECK(points>=0)
+        );
+        CREATE TABLE IF NOT EXISTS pending_registrations (
+            email TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            expires REAL NOT NULL,
+            sent_at REAL NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
@@ -69,6 +171,9 @@ def init():
             created TEXT DEFAULT CURRENT_TIMESTAMP,
             status TEXT DEFAULT 'Новый',
             total INTEGER NOT NULL,
+            subtotal INTEGER NOT NULL DEFAULT 0,
+            points_used INTEGER NOT NULL DEFAULT 0,
+            points_earned INTEGER NOT NULL DEFAULT 0,
             address TEXT NOT NULL,
             phone TEXT NOT NULL
         );
@@ -80,6 +185,14 @@ def init():
             quantity INTEGER NOT NULL
         );
         """)
+        _add_column(db, "users", "email_verified", "INTEGER NOT NULL DEFAULT 1")
+        _add_column(db, "users", "points", "INTEGER NOT NULL DEFAULT 0")
+        _add_column(db, "orders", "subtotal", "INTEGER NOT NULL DEFAULT 0")
+        _add_column(db, "orders", "points_used", "INTEGER NOT NULL DEFAULT 0")
+        _add_column(db, "orders", "points_earned", "INTEGER NOT NULL DEFAULT 0")
+        db.execute(
+            "UPDATE orders SET subtotal=total WHERE subtotal=0 AND points_used=0"
+        )
         if not db.execute("SELECT 1 FROM records LIMIT 1").fetchone():
             rows = [
                 (
@@ -239,3 +352,17 @@ def init():
 
         add_extra_albums(db)
         add_genre_albums(db)
+
+
+def _add_column(db, table, column, definition):
+    columns = {
+        row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column not in columns:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def verification_code_hash(code, key=None):
+    key = key or _encryption_key()
+    pepper = hmac.new(bytes.fromhex(key), b"email-verification", hashlib.sha256)
+    return hmac.new(pepper.digest(), code.encode(), hashlib.sha256).hexdigest()
